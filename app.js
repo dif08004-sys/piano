@@ -162,6 +162,8 @@ function startGame() {
     setupScreen.classList.remove('active');
     gameScreen.classList.add('active');
     
+    resizeCanvas();
+    
     activeNotes = [];
     score = 0;
     combo = 0;
