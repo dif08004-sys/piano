@@ -17,6 +17,37 @@ let isGameRunning = false;
 let gameSpeed = 4;
 let lastTime = 0;
 let spawnTimer = 0;
+let timeLeft = 180; // 3 minutes
+let wakeLock = null;
+
+// Highscore logic
+function getHighscoreKey() {
+    return `piano_highscore_${selectedNotes.size}`;
+}
+
+function updateHighscoreDisplay() {
+    const key = getHighscoreKey();
+    const highscore = localStorage.getItem(key) || 0;
+    document.getElementById('highscore-notes-count').textContent = selectedNotes.size;
+    document.getElementById('highscore-display').textContent = highscore;
+}
+
+// Wake Lock API
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+        }
+    } catch (err) {
+        console.error(`${err.name}, ${err.message}`);
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLock !== null) {
+        wakeLock.release().then(() => { wakeLock = null; });
+    }
+}
 
 // Audio Synth
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -75,6 +106,7 @@ function initUI() {
                 selectedNotes.add(note.name);
                 btn.classList.add('active');
             }
+            updateHighscoreDisplay();
         });
         notesSelector.appendChild(btn);
     });
@@ -89,6 +121,7 @@ function initUI() {
     // Resize canvas
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    updateHighscoreDisplay();
 }
 
 function resizeCanvas() {
@@ -163,11 +196,14 @@ function startGame() {
     gameScreen.classList.add('active');
     
     resizeCanvas();
+    requestWakeLock();
     
     activeNotes = [];
     score = 0;
     combo = 0;
+    timeLeft = 180;
     updateScore();
+    updateTimerDisplay();
     
     isGameRunning = true;
     lastTime = performance.now();
@@ -176,6 +212,20 @@ function startGame() {
 
 function stopGame() {
     isGameRunning = false;
+    releaseWakeLock();
+    
+    // Save highscore
+    const key = getHighscoreKey();
+    const currentHighscore = parseInt(localStorage.getItem(key)) || 0;
+    if (score > currentHighscore) {
+        localStorage.setItem(key, score);
+        alert(`Žaidimas baigtas! Laikas baigėsi.\nNaujas rekordas su ${selectedNotes.size} natomis: ${score} taškų!`);
+    } else {
+        alert(`Žaidimas baigtas! Jūsų taškai: ${score}`);
+    }
+    
+    updateHighscoreDisplay();
+    
     gameScreen.classList.remove('active');
     setupScreen.classList.add('active');
 }
@@ -241,6 +291,12 @@ function updateScore() {
     comboDisplay.textContent = combo;
 }
 
+function updateTimerDisplay() {
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = Math.floor(timeLeft % 60);
+    document.getElementById('timer').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 // Visuals
 let particles = [];
 function createParticles(x, y, color) {
@@ -282,6 +338,17 @@ function gameLoop(time) {
 
     const deltaTime = time - lastTime;
     lastTime = time;
+
+    // Laikmatis
+    const deltaTimeSec = deltaTime / 1000;
+    timeLeft -= deltaTimeSec;
+    if (timeLeft <= 0) {
+        timeLeft = 0;
+        updateTimerDisplay();
+        stopGame();
+        return;
+    }
+    updateTimerDisplay();
 
     // Update
     spawnTimer -= deltaTime;

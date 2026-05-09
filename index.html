@@ -33,6 +33,10 @@
                     Jungiamasi prie MIDI... ⏳
                 </div>
 
+                <div class="status-box" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); margin-top: -0.5rem;">
+                    Geriausias (<span id="highscore-notes-count">7</span> natų): <strong id="highscore-display">0</strong>
+                </div>
+
                 <button id="start-btn" class="primary-btn" disabled>Pradėti Žaidimą</button>
             </div>
         </div>
@@ -41,6 +45,7 @@
         <div id="game-screen" class="screen">
             <div class="game-header">
                 <div class="score-display">Taškai: <span id="score">0</span></div>
+                <div class="timer-display" style="font-size: 1.5rem; font-weight: 800; color: #fff;">Laikas: <span id="timer" style="color: #ef4444;">3:00</span></div>
                 <div class="combo-display">Combo: <span id="combo">0</span></div>
                 <button id="stop-btn" class="secondary-btn">Baigti</button>
             </div>
