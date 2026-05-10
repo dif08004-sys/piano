@@ -19,10 +19,11 @@ let lastTime = 0;
 let spawnTimer = 0;
 let timeLeft = 180; // 3 minutes
 let wakeLock = null;
+let handMode = 'right'; // 'right' or 'both'
 
 // Highscore logic
 function getHighscoreKey() {
-    return `piano_highscore_${selectedNotes.size}`;
+    return `piano_highscore_${handMode}_${selectedNotes.size}`;
 }
 
 function updateHighscoreDisplay() {
@@ -117,6 +118,14 @@ function initUI() {
     speedSlider.addEventListener('input', (e) => {
         gameSpeed = parseInt(e.target.value);
     });
+
+    const handModeSelect = document.getElementById('hand-mode-select');
+    if (handModeSelect) {
+        handModeSelect.addEventListener('change', (e) => {
+            handMode = e.target.value;
+            updateHighscoreDisplay();
+        });
+    }
 
     // Resize canvas
     window.addEventListener('resize', resizeCanvas);
@@ -235,15 +244,40 @@ function spawnNote() {
     if (available.length === 0) return;
     
     const randomNote = available[Math.floor(Math.random() * available.length)];
-    
-    // Nata priskiriama x pozicija priklausomai nuo jos pavadinimo (kad nesikirstų)
-    const padding = canvas.width * 0.1;
-    const innerWidth = canvas.width - padding * 2;
     const noteIndex = NOTES.findIndex(n => n.name === randomNote.name);
-    const xPos = padding + (noteIndex / (NOTES.length - 1)) * innerWidth;
+    
+    let hand = 'right';
+    if (handMode === 'both') {
+        hand = Math.random() < 0.5 ? 'left' : 'right';
+    }
+
+    let type = 'normal';
+    const rand = Math.random();
+    if (rand < 0.05) type = 'bomb';
+    else if (rand < 0.15) type = 'golden';
+
+    const padding = canvas.width * 0.1;
+    let innerWidth = canvas.width - padding * 2;
+    let xPos = 0;
+
+    if (handMode === 'both') {
+        innerWidth = (canvas.width / 2) - padding * 1.5;
+        if (hand === 'left') {
+            xPos = padding + (noteIndex / (NOTES.length - 1)) * innerWidth;
+        } else {
+            xPos = (canvas.width / 2) + padding * 0.5 + (noteIndex / (NOTES.length - 1)) * innerWidth;
+        }
+    } else {
+        xPos = padding + (noteIndex / (NOTES.length - 1)) * innerWidth;
+    }
+
+    const actualMidi = hand === 'left' ? randomNote.midi - 12 : randomNote.midi;
 
     activeNotes.push({
         ...randomNote,
+        midi: actualMidi,
+        hand: hand,
+        type: type,
         x: xPos,
         y: -50,
         marked: false
@@ -273,11 +307,24 @@ function handleKeyPress(midiNote) {
 
     if (hitIndex !== -1) {
         // Pataikėme
-        activeNotes[hitIndex].marked = true;
-        score += 10 + (combo * 2);
-        combo++;
+        const hitNote = activeNotes[hitIndex];
+        hitNote.marked = true;
+
+        if (hitNote.type === 'bomb') {
+            score = Math.max(0, score - 50);
+            combo = 0;
+            createParticles(hitNote.x, hitNote.y, '#ef4444');
+        } else if (hitNote.type === 'golden') {
+            score += 50 + (combo * 5);
+            combo++;
+            createParticles(hitNote.x, hitNote.y, '#eab308');
+        } else {
+            score += 10 + (combo * 2);
+            combo++;
+            createParticles(hitNote.x, hitNote.y, hitNote.color);
+        }
+        
         updateScore();
-        createParticles(activeNotes[hitIndex].x, activeNotes[hitIndex].y, activeNotes[hitIndex].color);
         activeNotes.splice(hitIndex, 1);
     } else {
         // Suklydo arba nuspaudė per anksti/per vėlai
@@ -353,7 +400,17 @@ function gameLoop(time) {
     // Update
     spawnTimer -= deltaTime;
     // Greitis slankiklyje: 1 (lėtas) iki 10 (greitas)
-    const spawnRate = 2000 - (gameSpeed * 150); // ms tarp natų
+    // Dinaminis greitis pagal likusį laiką
+    let spawnRate = 2000 - (gameSpeed * 150); // ms tarp natų
+    let speedMultiplier = 1;
+    
+    if (timeLeft <= 60) {
+        speedMultiplier = 1.5;
+        spawnRate *= 0.7;
+    } else if (timeLeft <= 120) {
+        speedMultiplier = 1.2;
+        spawnRate *= 0.85;
+    }
     
     if (spawnTimer <= 0) {
         spawnNote();
@@ -361,17 +418,20 @@ function gameLoop(time) {
     }
 
     const hitZoneY = canvas.height * 0.8;
-    const fallSpeed = (gameSpeed * 0.05) * deltaTime;
+    const baseFallSpeed = (gameSpeed * 0.05) * deltaTime * speedMultiplier;
 
     // Move notes
     for (let i = activeNotes.length - 1; i >= 0; i--) {
-        activeNotes[i].y += fallSpeed;
+        const speed = activeNotes[i].type === 'golden' ? baseFallSpeed * 1.3 : baseFallSpeed;
+        activeNotes[i].y += speed;
         
         // Jei nata praleista
         if (activeNotes[i].y > canvas.height + 50) {
+            if (activeNotes[i].type !== 'bomb') {
+                combo = 0; // Prarandame combo
+                updateScore();
+            }
             activeNotes.splice(i, 1);
-            combo = 0; // Prarandame combo
-            updateScore();
         }
     }
 
@@ -392,16 +452,41 @@ function gameLoop(time) {
 
     // Draw notes
     activeNotes.forEach(note => {
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(note.color.slice(4, -1)) || '#fff';
+        let fillColor = getComputedStyle(document.documentElement).getPropertyValue(note.color.slice(4, -1)).trim() || '#fff';
+        let strokeColor = 'transparent';
+        let symbol = note.name;
+        
+        if (note.type === 'golden') {
+            fillColor = '#eab308'; // Yellow
+            strokeColor = '#fff';
+        } else if (note.type === 'bomb') {
+            fillColor = '#ef4444'; // Red
+            symbol = '💣';
+        }
+
+        if (note.hand === 'left' && note.type === 'normal') {
+            // Darker inside, bright border for left hand
+            strokeColor = fillColor;
+            fillColor = 'rgba(255, 255, 255, 0.15)';
+        }
+
+        ctx.fillStyle = fillColor;
         ctx.beginPath();
         ctx.arc(note.x, note.y, 25, 0, Math.PI * 2);
         ctx.fill();
         
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 24px Outfit';
+        if (strokeColor !== 'transparent') {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+        
+        ctx.fillStyle = (note.hand === 'left' && note.type === 'normal') ? strokeColor : '#fff';
+        if (note.type === 'bomb') ctx.fillStyle = '#000';
+        ctx.font = note.type === 'bomb' ? 'bold 20px Outfit' : 'bold 24px Outfit';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(note.name, note.x, note.y);
+        ctx.fillText(symbol, note.x, note.y);
     });
 
     // Draw particles
@@ -416,14 +501,34 @@ function gameLoop(time) {
 
     // Nupiešti "Keyboard" mygtukus apačioje (testavimui/vizualizacijai)
     const padding = canvas.width * 0.1;
-    const innerWidth = canvas.width - padding * 2;
-    NOTES.forEach((note, index) => {
-        const xPos = padding + (index / (NOTES.length - 1)) * innerWidth;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.beginPath();
-        ctx.arc(xPos, hitZoneY, 30, 0, Math.PI * 2);
-        ctx.stroke();
-    });
+    if (handMode === 'both') {
+        const innerWidth = (canvas.width / 2) - padding * 1.5;
+        // Left hand markers
+        NOTES.forEach((note, index) => {
+            const xPos = padding + (index / (NOTES.length - 1)) * innerWidth;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.beginPath();
+            ctx.arc(xPos, hitZoneY, 30, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+        // Right hand markers
+        NOTES.forEach((note, index) => {
+            const xPos = (canvas.width / 2) + padding * 0.5 + (index / (NOTES.length - 1)) * innerWidth;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.beginPath();
+            ctx.arc(xPos, hitZoneY, 30, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+    } else {
+        const innerWidth = canvas.width - padding * 2;
+        NOTES.forEach((note, index) => {
+            const xPos = padding + (index / (NOTES.length - 1)) * innerWidth;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.beginPath();
+            ctx.arc(xPos, hitZoneY, 30, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+    }
 
     requestAnimationFrame(gameLoop);
 }

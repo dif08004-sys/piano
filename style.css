@@ -127,6 +127,21 @@ input[type="range"] {
     accent-color: var(--primary);
 }
 
+.styled-select {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background: var(--bg-dark);
+    color: var(--text-main);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 1rem;
+    font-family: 'Outfit', sans-serif;
+    outline: none;
+}
+.styled-select:focus {
+    border-color: var(--primary);
+}
+
 .status-box {
     padding: 1rem;
     border-radius: 0.75rem;
